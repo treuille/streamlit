@@ -17,6 +17,7 @@ from datetime import datetime
 from datetime import date
 from datetime import time
 
+from streamlit import metrics
 from streamlit import protobuf
 from streamlit import get_report_ctx
 
@@ -211,6 +212,9 @@ class DeltaGenerator(object):
         else:
             output_dg = self
 
+        kind = msg.delta.new_element.WhichOneof('type')
+        m = metrics.Client.get('streamlit_enqueue_deltas_total')
+        m.labels(kind).inc()
         msg_was_enqueued = self._enqueue(msg)
 
         if not msg_was_enqueued:
@@ -906,7 +910,6 @@ class DeltaGenerator(object):
         https://plot.ly/python:
 
         >>> import streamlit as st
-        >>> import plotly.plotly as py
         >>> import plotly.figure_factory as ff
         >>> import numpy as np
         >>>
@@ -1260,16 +1263,16 @@ class DeltaGenerator(object):
         value : int/float or a tuple/list of int/float
             The value of this widget when it first renders. In case the value
             is passed as a tuple/list a range slider will be used.
-            Default: 0
+            Defaults to 0.
         min_value : int/float
             The minimum permitted value.
-            Default: 0 if the value is int, 0.0 otherwise.
+            Defaults to 0 if the value is an int, 0.0 otherwise.
         max_value : int/float
             The maximum permitted value.
-            Default: 100 if the value is int, 1.0 otherwise.
+            Defaults 100 if the value is an int, 1.0 otherwise.
         step : int/float
             The stepping interval.
-            Default: 1 if the value is int, 0.01 otherwise.
+            Defaults to 1 if the value is an int, 0.01 otherwise.
 
         Returns
         -------
@@ -1322,6 +1325,15 @@ class DeltaGenerator(object):
         all_floats = float_value and float_args
         if not all_ints and not all_floats:
             raise TypeError("Both value and arguments must be of the same type.")
+
+        # Ensure that min <= value <= max.
+        if single_value:
+            if not min_value <= value <= max_value:
+                raise ValueError("The value and/or arguments are out of range.")
+        else:
+            start, end = value
+            if not min_value <= start <= end <= max_value:
+                raise ValueError("The value and/or arguments are out of range.")
 
         # Convert the current value to the appropriate type.
         current_value = ui_value if ui_value is not None else value
@@ -1414,8 +1426,7 @@ class DeltaGenerator(object):
             A short label explaining to the user what this time input is for.
         value : datetime.time/datetime.datetime
             The value of this widget when it first renders. This will be
-            cast to str internally.
-            Default: NOW
+            cast to str internally. Defaults to the current time.
 
         Returns
         -------
@@ -1455,8 +1466,7 @@ class DeltaGenerator(object):
             A short label explaining to the user what this date input is for.
         value : datetime.date/datetime.datetime
             The value of this widget when it first renders. This will be
-            cast to str internally.
-            Default: TODAY
+            cast to str internally. Defaults to today.
 
         Returns
         -------

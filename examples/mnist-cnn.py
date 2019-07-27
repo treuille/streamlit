@@ -20,6 +20,18 @@ import math
 import numpy as np
 import pandas as pd
 import sys
+import time
+
+# https://kobkrit.com/using-allow-growth-memory-option-in-tensorflow-and-keras-dc8c8081bc96
+from keras.backend.tensorflow_backend import set_session
+import tensorflow as tf
+
+tf_config = tf.ConfigProto()
+# dynamically grow the memory used on the GPU
+# this option is fine on non gpus as well.
+tf_config.gpu_options.allow_growth = True
+tf_config.log_device_placement = True
+set_session(tf.Session(config=tf_config))
 
 
 class MyCallback(keras.callbacks.Callback):
@@ -33,6 +45,7 @@ class MyCallback(keras.callbacks.Callback):
         st.header('Training Log')
 
     def on_epoch_begin(self, epoch, logs=None):
+        self._ts = time.time()
         self._epoch = epoch
         st.subheader('Epoch %s' % epoch)
         self._epoch_chart = self._create_chart('line')
@@ -49,10 +62,12 @@ class MyCallback(keras.callbacks.Callback):
         percent_complete = logs['batch'] * logs['size'] /\
             self.params['samples']
         self._epoch_progress.progress(math.ceil(percent_complete * 100))
+        ts = time.time() - self._ts
         self._epoch_summary.text(
-            'loss: %(loss)7.5f | acc: %(acc)7.5f' % {
+            'loss: %(loss)7.5f | acc: %(acc)7.5f | ts: %(ts)d' % {
                 'loss': logs['loss'],
                 'acc': logs['acc'],
+                'ts': ts,
             })
 
     def on_epoch_end(self, epoch, logs=None):

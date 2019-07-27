@@ -4,7 +4,6 @@
 import json
 import logging
 import threading
-import urllib
 from enum import Enum
 
 import tornado.concurrent
@@ -14,18 +13,28 @@ import tornado.websocket
 import tornado.ioloop
 
 from streamlit import config
+from streamlit import metrics
 from streamlit import protobuf
 from streamlit import util
 from streamlit.ReportContext import ReportContext
+
 from streamlit.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
 
 # Largest message that can be sent via the WebSocket connection.
-# (Limit was picked by trial and error)
+# (Limit was picked arbitrarily)
 # TODO: Break message in several chunks if too large.
-MESSAGE_SIZE_LIMIT = 10466493
+MESSAGE_SIZE_LIMIT = 5 * 10e7  # 50MB
+
+
+TORNADO_SETTINGS = {
+    'compress_response': True,  # Gzip HTTP responses.
+    'websocket_ping_interval': 20,  # Ping every 20s to keep WS alive.
+    'websocket_ping_timeout': 30,  # Pings should be responded to within 30s.
+    'websocket_max_message_size': MESSAGE_SIZE_LIMIT,  # Up the WS size limit.
+}
 
 
 # Dictionary key used to mark the script execution context that starts
@@ -79,7 +88,7 @@ class Server(object):
         self._ioloop = tornado.ioloop.IOLoop.current()
 
         port = config.get_option('server.port')
-        app = tornado.web.Application(self._get_routes())
+        app = tornado.web.Application(self._get_routes(), **TORNADO_SETTINGS)
         app.listen(port)
 
         LOGGER.debug('Server started on port %s', port)
@@ -94,24 +103,22 @@ class Server(object):
             (r'/stream', _BrowserWebSocketHandler, dict(server=self)),
             (r'/healthz', _HealthHandler, dict(server=self)),
             (r'/debugz', _DebugHandler, dict(server=self)),
+            (r'/metrics', _MetricsHandler, dict(server=self)),
         ]
 
-        if (not config.get_option('global.developmentMode')
-                or not config.get_option('global.useNode')):
-            # If we're not using the node development server, then the proxy
-            # will serve up the development pages.
+        if (config.get_option('global.developmentMode') and
+                config.get_option('global.useNode')):
+            LOGGER.debug('Serving static content from the Node dev server')
+        else:
             static_path = util.get_static_dir()
             LOGGER.debug('Serving static content from %s', static_path)
 
             routes.extend([
-                (r"/()$", _StaticFileHandler,
+                (r"/()$", tornado.web.StaticFileHandler,
                     {'path': '%s/index.html' % static_path}),
-                (r"/(.*)", _StaticFileHandler, {'path': '%s/' % static_path}),
+                (r"/(.*)", tornado.web.StaticFileHandler,
+                    {'path': '%s/' % static_path}),
             ])
-        else:
-            LOGGER.debug(
-                'developmentMode == True, '
-                'not serving static content from python.')
 
         return routes
 
@@ -196,10 +203,8 @@ class Server(object):
         This is used to start running the user's script even before the first
         browser connects.
         """
-        # report_ctx = self._add_browser_connection(PREHEATED_REPORT_CONTEXT)
-        # report_ctx.handle_rerun_script_request()
-        # TODO: Re-enable this when preheating is fixed
-        pass
+        report_ctx = self._add_browser_connection(PREHEATED_REPORT_CONTEXT)
+        report_ctx.handle_rerun_script_request(is_preheat=True)
 
     def _add_browser_connection(self, ws):
         """Register a connected browser with the server
@@ -217,8 +222,8 @@ class Server(object):
         """
         if ws not in self._report_contexts:
 
-            if (len(self._report_contexts) == 1 and
-                    PREHEATED_REPORT_CONTEXT in self._report_contexts):
+            if PREHEATED_REPORT_CONTEXT in self._report_contexts:
+                assert len(self._report_contexts) == 1
                 LOGGER.debug('Reusing preheated context for ws %s', ws)
                 report_ctx = self._report_contexts[PREHEATED_REPORT_CONTEXT]
                 del self._report_contexts[PREHEATED_REPORT_CONTEXT]
@@ -227,8 +232,7 @@ class Server(object):
                 report_ctx = ReportContext(
                     ioloop=self._ioloop,
                     script_path=self._script_path,
-                    script_argv=self._script_argv,
-                    is_preheat=ws is PREHEATED_REPORT_CONTEXT)
+                    script_argv=self._script_argv)
 
             self._report_contexts[ws] = report_ctx
 
@@ -247,46 +251,45 @@ class Server(object):
             self._set_state(State.NO_BROWSERS_CONNECTED)
 
 
-class _StaticFileHandler(tornado.web.StaticFileHandler):
-    # Don't disable cache since Tornado sets the etag properly. This means the
-    # browser sends the hash of its cached file and Tornado only returns the
-    # actual file if the latest hash is different.
-    #
-    # def set_extra_headers(self, path):
-    #     """Disable cache."""
-    #     self.set_header('Cache-Control', 'no-cache')
+class _SpecialRequestHandler(tornado.web.RequestHandler):
+    """Superclass for "special" endpoints, like /healthz."""
 
-    def check_origin(self, origin):
-        """Set up CORS."""
-        return _is_url_from_allowed_origins(origin)
-
-
-class _HealthHandler(tornado.web.RequestHandler):
     def initialize(self, server):
         self._server = server
 
-    def check_origin(self, origin):
-        """Set up CORS."""
-        return _is_url_from_allowed_origins(origin)
+    def set_default_headers(self):
+        self.set_header('Cache-Control', 'no-cache')
+        # Only allow cross-origin requests when using the Node server. This is
+        # only needed when using the Node server anyway, since in that case we
+        # have a dev port and the prod port, which count as two origins.
+        if (not config.get_option('server.enableCORS') or
+                config.get_option('global.useNode')):
+            self.set_header('Access-Control-Allow-Origin', '*')
 
+
+class _HealthHandler(_SpecialRequestHandler):
     def get(self):
-        self.add_header('Cache-Control', 'no-cache')
         if self._server.is_ready_for_browser_connection:
             self.write('ok')
+            self.set_status(200)
         else:
             # 503 = SERVICE_UNAVAILABLE
             self.set_status(503)
             self.write('unavailable')
 
 
-class _DebugHandler(tornado.web.RequestHandler):
-    def initialize(self, server):
-        self._server = server
+class _MetricsHandler(_SpecialRequestHandler):
+    def get(self):
+        if config.get_option('global.metrics'):
+            self.add_header('Cache-Control', 'no-cache')
+            self.set_header('Content-Type', 'text/plain')
+            self.write(metrics.Client.get_current().generate_latest())
+        else:
+            self.set_status(404)
+            raise tornado.web.Finish()
 
-    def check_origin(self, origin):
-        """Set up CORS."""
-        return _is_url_from_allowed_origins(origin)
 
+class _DebugHandler(_SpecialRequestHandler):
     def get(self):
         self.add_header('Cache-Control', 'no-cache')
         self.write(
@@ -336,6 +339,13 @@ class _BrowserWebSocketHandler(tornado.websocket.WebSocketHandler):
             elif msg_type == 'update_widgets':
                 self._ctx.handle_rerun_script_request(
                     widget_state=msg.update_widgets)
+            elif msg_type == 'close_connection':
+                if config.get_option('global.developmentMode'):
+                    Server.get_current().stop()
+                else:
+                    LOGGER.warning(
+                        'Client tried to close connection when '
+                        'not in development mode')
             else:
                 LOGGER.warning('No handler for "%s"', msg_type)
 
@@ -399,27 +409,41 @@ def _is_url_from_allowed_origins(url):
         # Allow everything when CORS is disabled.
         return True
 
-    hostname = urllib.parse.urlparse(url).hostname
+    hostname = util.get_hostname(url)
 
-    # Allow connections from bucket.
-    if hostname == config.get_option('s3.bucket'):
-        return True
-
-    # Allow connections from watcher's machine or localhost.
     allowed_domains = [
+        # Check localhost first.
         'localhost',
+        '0.0.0.0',
         '127.0.0.1',
-        util.get_internal_ip(),
-        util.get_external_ip(),
+        # Try to avoid making unecessary HTTP requests by checking if the user
+        # manually specified a server address.
+        _get_server_address_if_manually_set,
+        _get_s3_url_host_if_manually_set,
+        # Then try the options that depend on HTTP requests or opening sockets.
+        util.get_internal_ip,
+        util.get_external_ip,
+        lambda: config.get_option('s3.bucket'),
     ]
 
-    s3_url = config.get_option('s3.url')
+    for allowed_domain in allowed_domains:
+        if util.is_function(allowed_domain):
+            allowed_domain = allowed_domain()
 
-    if s3_url is not None:
-        parsed = urllib.parse.urlparse(s3_url)
-        allowed_domains.append(parsed.hostname)
+        if allowed_domain is None:
+            continue
 
+        if hostname == allowed_domain:
+            return True
+
+    return False
+
+
+def _get_server_address_if_manually_set():
     if config.is_manually_set('browser.serverAddress'):
-        allowed_domains.append(config.get_option('browser.serverAddress'))
+        return util.get_hostname(config.get_option('browser.serverAddress'))
 
-    return any(hostname == d for d in allowed_domains)
+
+def _get_s3_url_host_if_manually_set():
+    if config.is_manually_set('s3.url'):
+        return util.get_hostname(config.get_option('s3.url'))
