@@ -1,8 +1,18 @@
 /**
  * @license
- * Copyright 2018 Streamlit Inc. All rights reserved.
+ * Copyright 2018-2019 Streamlit Inc.
  *
- * @fileoverview Represents formatted text.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import React from 'react'
@@ -27,9 +37,9 @@ class DocString extends React.PureComponent<Props> {
     const type = element.get('type')
     const signature = element.get('signature')
 
-    const moduleHtml = <span className="doc-module">{module}.</span>
-    const nameHtml = <span className="doc-name">{name}</span>
-    const signatureHtml = <span className="doc-signature">{signature}</span>
+    const moduleHtml = <span className="doc-module" key="module">{module}.</span>
+    const nameHtml = <span className="doc-name" key="name">{name}</span>
+    const signatureHtml = <span className="doc-signature" key="signature">{signature}</span>
     const typeHtml = <span className="doc-type">{type}</span>
 
     // Put it all together into a nice little html view.

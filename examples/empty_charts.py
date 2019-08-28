@@ -1,3 +1,18 @@
+# -*- coding: utf-8 -*-
+# Copyright 2018-2019 Streamlit Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import streamlit as st
 import pandas as pd
 
@@ -31,7 +46,9 @@ spec = {
 
 st.subheader('Here are 2 empty charts')
 st.vega_lite_chart(spec)
+st.write('Below is an empty pyplot chart (i.e. just a blank image)')
 st.pyplot()
+st.write('...and that was it.')
 
 st.subheader('Here are 2 filled charts')
 x = st.vega_lite_chart(spec)
@@ -49,24 +66,26 @@ st.deck_gl_chart()
 # x = st.deck_gl_chart()
 # x.add_rows({'lat': 0, 'lon': 0})
 
-st.subheader('Here are 10 errors')
-st.write(1)
-st.vega_lite_chart({})
-st.write(2)
-st.vega_lite_chart(data, {})
-st.write(3)
-st.vega_lite_chart(data)
-st.write(4)
-st.vega_lite_chart()
-st.write(5)
-st.altair_chart()
-st.write(6)
-st.line_chart()
-st.write(7)
-st.area_chart()
-st.write(8)
-st.bar_chart()
-st.write(9)
-st._native_chart()
-st.write(10)
-st.map()
+# TODO: write Python tests for these:
+# (This manual test doesn't work anymore since errors break execution now)
+# st.subheader('Here are 10 errors')
+# st.write(1)
+# st.vega_lite_chart({})
+# st.write(2)
+# st.vega_lite_chart(data, {})
+# st.write(3)
+# st.vega_lite_chart(data)
+# st.write(4)
+# st.vega_lite_chart()
+# st.write(5)
+# st.altair_chart()
+# st.write(6)
+# st.line_chart()
+# st.write(7)
+# st.area_chart()
+# st.write(8)
+# st.bar_chart()
+# st.write(9)
+# st._native_chart()
+# st.write(10)
+# st.map()

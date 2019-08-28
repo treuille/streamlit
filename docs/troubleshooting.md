@@ -22,7 +22,7 @@ $ pip install --upgrade streamlit
 $ streamlit version
 ```
 
-...and then verify that the version number printed is `0.44.0`.
+...and then verify that the version number printed is `0.45.0`.
 
 **Try reproducing the issue now.**
 
@@ -49,7 +49,7 @@ Chrome/Firefox.
 with a brand new cache. For that, add this to `~/.streamlit/config.toml`:
 
 ```ini
-[proxy]
+[server]
 port=8765
 ```
 

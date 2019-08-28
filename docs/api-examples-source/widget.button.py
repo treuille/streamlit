@@ -1,5 +1,6 @@
 import streamlit as st
 
-w = st.button('Click me')
-if w:
-    print('hello')
+if st.button('Say hello'):
+    st.write('Why hello there')
+else:
+    st.write('Goodbye')
