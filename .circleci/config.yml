@@ -90,32 +90,32 @@ jobs:
       - restore_cache:
           name: Restore /opt/conda from cache
           keys:
-          - v12-opt-conda-{{ checksum "~/python_version.md5" }}
+            - v12-opt-conda-{{ checksum "~/python_version.md5" }}
 
       - restore_cache: &restore_virtualenv
           name: Restore virtualenv from cache
           keys:
-          - v12-python-venv-{{ checksum "~/python_version.md5" }}
+            - v12-python-venv-{{ checksum "~/python_version.md5" }}
 
       - restore_cache: &restore_nvm
           name: Restore nvm and node_modules from cache
           keys:
-          - v12-nvm_node_modules-{{ checksum "~/yarn.lock.md5" }}
+            - v12-nvm_node_modules-{{ checksum "~/yarn.lock.md5" }}
 
       - restore_cache:
           name: Restore protobufs from cache
           keys:
-          - v12-protobuf-{{ checksum "~/protobuf.md5" }}
+            - v12-protobuf-{{ checksum "~/protobuf.md5" }}
 
       - restore_cache: &restore_make
           name: Restore make from cache
           keys:
-          - v12_make.bin-{{ checksum "~/make.md5" }}
+            - v12_make.bin-{{ checksum "~/make.md5" }}
 
       - restore_cache: &restore_dot
           name: Restore dot from cache
           keys:
-          - v12_dot.bin-{{ checksum "~/dot.md5" }}
+            - v12_dot.bin-{{ checksum "~/dot.md5" }}
 
       #################################################################
       # Pre Make commands
@@ -158,7 +158,6 @@ jobs:
           paths:
             - dot.bin
 
-
       #################################################################
       # Run 'make init'
       #################################################################
@@ -175,8 +174,8 @@ jobs:
             fi
             if [ ! -d frontend/node_modules ] ; then
               source "$HOME/.nvm/nvm.sh"
-              make react-init
             fi
+            make react-init scssvars
             echo 'export NVM_DIR="$HOME/.nvm"' >> $BASH_ENV
             echo 'source "$NVM_DIR/nvm.sh"' >> $BASH_ENV
 
@@ -244,6 +243,7 @@ jobs:
           name: Run linters.
           command: |
             make jslint
+            make pylint
 
       - store_test_results:
           path: frontend/test-reports
@@ -260,6 +260,26 @@ jobs:
       - store_test_results:
           path: lib/test-reports
           when: always
+
+      #################################################################
+      # Run integration tests
+      #################################################################
+      - run:
+          name: Run integration tests.
+          command: |
+            make integration-tests
+
+      #################################################################
+      # Run frontend tests. (Only executed in the Python 3 job.)
+      #################################################################
+      - run:
+          name: Run frontend tests.
+          command: |
+            if [ "${CIRCLE_JOB}" == "python-2.7.16" ] ; then
+              echo "Not running frontend tests because our job is ${CIRCLE_JOB}"
+            else
+              make jstest
+            fi
 
       #################################################################
       # Save cache for python virtualenv, node_modules, protobuf
@@ -290,6 +310,11 @@ jobs:
             - frontend/src/autogen/proto.js
             - lib/streamlit/proto
 
+  # The 'python-2.7.16' job inherits everything from the Python 3 job.
+  # In a few cases, there are steps that are conditionally skipped based
+  # on the name of the current job (see, e.g., "Run frontend tests").
+  # If the python-2.7.16 job name is changed, please also find and replace
+  # any relevant strings that reference it by name!
   python-2.7.16:
     <<: *job-template
     docker:
